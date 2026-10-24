@@ -26,7 +26,11 @@ public static class TrayIconRenderer
         var radius = size * 0.24f;
         using (var path = RoundedRect(new RectangleF(0, 0, size, size), radius))
         using (var fill = new SolidBrush(Tile))
+        {
             g.FillPath(fill, path);
+            using var edge = new Pen(Color.FromArgb(64, 255, 255, 255), 1f);   // keeps the tile visible on a dark taskbar
+            g.DrawPath(edge, RoundedRect(new RectangleF(0.5f, 0.5f, size - 1, size - 1), radius));
+        }
 
         var barH = Math.Max(2f, size * 0.12f);
         var inset = size * 0.14f;

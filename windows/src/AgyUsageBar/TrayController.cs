@@ -21,12 +21,19 @@ public sealed class TrayController : IDisposable
     {
         this.manager = manager;
         ui = Dispatcher.CurrentDispatcher;
-        notify = new NotifyIcon { ContextMenuStrip = menu, Visible = true };
+        notify = new NotifyIcon { ContextMenuStrip = menu };
         notify.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) TogglePopup(); };
         menu.Opening += (_, _) => BuildMenu();
         manager.Changed += () => ui.BeginInvoke(Update);
+        menu.Closed += (_, _) =>
+        {
+            if (popup is null) return;
+            popup.KeepOpen = false;
+            if (popup.IsVisible) popup.Activate();
+        };
         SystemEvents.PowerModeChanged += OnPower;
         Update();
+        notify.Visible = true;   // only once it has an icon
     }
 
     private void OnPower(object? sender, PowerModeChangedEventArgs e)
@@ -73,10 +80,12 @@ public sealed class TrayController : IDisposable
             id => { poolId = id; Rebuild(); },
             manager.Refresh,
             _ => ShowSettingsMenu())));
+        popup.Dispatcher.BeginInvoke(popup.Refit, DispatcherPriority.Loaded);
     }
 
     private void ShowSettingsMenu()
     {
+        if (popup is not null) popup.KeepOpen = true;
         BuildMenu();
         menu.Show(Cursor.Position);
     }

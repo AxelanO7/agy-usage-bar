@@ -80,8 +80,8 @@ public static class PopupView
         grid.Children.Add(left);
 
         var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
-        right.Children.Add(IconButton("", L.RefreshNow, t, () => c.Refresh()));      // Refresh
-        var gear = IconButton("", L.Settings, t, null);                              // Settings
+        right.Children.Add(IconButton("\uE72C", L.RefreshNow, t, () => c.Refresh()));      // Refresh
+        var gear = IconButton("\uE713", L.Settings, t, null);                              // Settings
         gear.MouseLeftButtonUp += (_, _) => c.OpenSettings(gear);
         right.Children.Add(gear);
         Grid.SetColumn(right, 1);
@@ -108,7 +108,7 @@ public static class PopupView
     private static Border Banner(string text, Theme t)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        var icon = Ui.Text("", 12, t.Hot, family: Ui.Icons);   // Warning
+        var icon = Ui.Text("\uE7BA", 12, t.Hot, family: Ui.Icons);   // Warning
         icon.Margin = new Thickness(0, 1, 8, 0);
         row.Children.Add(icon);
         var msg = Ui.Text(text, 11, t.Text);
@@ -206,7 +206,7 @@ public static class PopupView
             case Pace.Exhaust ex:
                 return IconText(Flame(t.Warn), L.RunsOut(Fmt.Countdown(ex.In)), t.Warn);
             case Pace.Safe:
-                var check = Ui.Text("", 13, t.Secondary, family: Ui.Icons);   // Completed (check in circle)
+                var check = Ui.Text("\uE930", 13, t.Secondary, family: Ui.Icons);   // Completed (check in circle)
                 return IconText(check, L.LastsUntilReset, t.Secondary);
             default:
                 return null;
@@ -234,7 +234,7 @@ public static class PopupView
         row.Children.Add(Ui.Text(text, 10, t.Secondary, FontWeights.SemiBold));
         if (pinned)
         {
-            var pin = Ui.Text("", 10, t.Tertiary, family: Ui.Icons);   // Taskbar icon
+            var pin = Ui.Text("\uE718", 10, t.Tertiary, family: Ui.Icons);   // Pin
             pin.Margin = new Thickness(6, 0, 0, 0);
             pin.ToolTip = L.PinnedHelp;
             row.Children.Add(pin);
