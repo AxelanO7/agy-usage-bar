@@ -6,12 +6,15 @@
   The MSI to test (version 0.1.0).
 .PARAMETER UpgradeMsi
   A build of the same package with version 0.1.1, used to test the in-place upgrade.
+.PARAMETER LogFile
+  Optional: also append every line to this file as it happens (so a hang can be diagnosed from the file).
 .EXAMPLE
   ./test-msi.ps1 -Msi AgyUsageBar-win-x64.msi -UpgradeMsi AgyUsageBar-win-x64-0.1.1.msi
 #>
 param(
     [Parameter(Mandatory)] [string]$Msi,
-    [Parameter(Mandatory)] [string]$UpgradeMsi
+    [Parameter(Mandatory)] [string]$UpgradeMsi,
+    [string]$LogFile = ''
 )
 $ErrorActionPreference = 'Stop'
 $v1 = (Resolve-Path $Msi).Path
@@ -23,10 +26,14 @@ $upgradeCode = '{84229C8E-27E1-4D99-8155-E8E40ACF34BE}'
 $failures = New-Object System.Collections.Generic.List[string]
 $clock = [System.Diagnostics.Stopwatch]::StartNew()
 
-function Info([string]$Text) { Write-Host ('[{0,6:n1}s] {1}' -f $clock.Elapsed.TotalSeconds, $Text) }
+function Out-Line([string]$Text) {
+  Write-Host $Text
+  if ($LogFile) { Add-Content -Path $LogFile -Value $Text }
+}
+function Info([string]$Text) { Out-Line ('[{0,6:n1}s] {1}' -f $clock.Elapsed.TotalSeconds, $Text) }
 # Every check is recorded and the script carries on, so one run shows all problems at once.
 function Check([bool]$Ok, [string]$What) {
-  if ($Ok) { Info "ok      $What" } else { Write-Host "::error::FAILED: $What"; Info "FAILED  $What"; $failures.Add($What) }
+  if ($Ok) { Info "ok      $What" } else { Out-Line "::error::FAILED: $What"; Info "FAILED  $What"; $failures.Add($What) }
 }
 # msiexec is started and awaited by hand: "Start-Process -Wait" also waits for the tray app that the installer launches, and would never return.
 function Invoke-Msi([string]$Verb, [string]$Package, [string]$Log, [string]$Extra = '') {
@@ -84,16 +91,20 @@ try {
   Invoke-Msi i $v1 install.log
   Check (Test-Path "$dir\AgyUsageBar.exe") 'AgyUsageBar.exe is installed'
   Check (Test-Path $lnk) 'Start Menu shortcut exists'
+  Info 'waiting for the installer to start the app...'
   Check (Wait-Until { (Get-AppCount) -eq 1 }) "the installer started the app (running copies: $(Get-AppCount))"
   Show-App
+  Info 'asking the Windows Installer what is installed...'
   Check ((@(Get-InstalledVersions) -join ',') -eq '0.1.0') "Windows Installer lists exactly version 0.1.0 (got: $(@(Get-InstalledVersions) -join ','))"
+  Info 'reading the Add/Remove Programs entries...'
   $arp = @(Get-Arp)
-  $arp | Format-List | Out-String | Write-Host
+  Out-Line ($arp | Format-List | Out-String)
   Check ($arp.Count -eq 1 -and $arp[0].Version -eq '0.1.0') 'Add/Remove Programs entry exists with version 0.1.0'
   Check (-not (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue)) 'launch at login is off by default'
 
   Info '== 2. Upgrade while the app is running'
   Invoke-Msi i $v2 upgrade.log
+  Info 'waiting for one running copy after the upgrade...'
   Check (Wait-Until { (Get-AppCount) -eq 1 }) "one copy runs after the upgrade (running copies: $(Get-AppCount))"
   Show-App
   Check ((@(Get-InstalledVersions) -join ',') -eq '0.1.1') "Windows Installer lists exactly version 0.1.1 (got: $(@(Get-InstalledVersions) -join ','))"
@@ -103,6 +114,7 @@ try {
 
   Info '== 3. Uninstall'
   Invoke-Msi x $v2 uninstall.log
+  Info 'waiting for the app to stop...'
   Check (Wait-Until { (Get-AppCount) -eq 0 }) 'the app was stopped'
   Check (-not (Test-Path $dir)) 'install folder removed'
   Check (-not (Test-Path $lnk)) 'shortcut removed'
@@ -116,6 +128,11 @@ try {
   Invoke-Msi x $v1 uninstall-login.log
   Check (-not (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue)) 'Run key removed on uninstall'
   Check (Wait-Until { (Get-AppCount) -eq 0 }) 'the app was stopped by the last uninstall'
+}
+catch {
+  Out-Line "::error::test script aborted: $($_.Exception.Message)"
+  Info "aborted: $($_.Exception.Message)"
+  $failures.Add("aborted: $($_.Exception.Message)")
 }
 finally {
   # Leave nothing behind, whatever happened above.

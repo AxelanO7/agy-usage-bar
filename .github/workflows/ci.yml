@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   macos:
@@ -112,16 +113,29 @@ jobs:
         timeout-minutes: 12
         shell: pwsh
         run: |
-          # The test runs in its own process with its output going to files: whatever the installer or the tray app it starts
-          # does with inherited handles, this step can always print the log and stop the test when it takes too long.
-          $test = Start-Process pwsh -ArgumentList '-NoProfile', '-File', 'windows/installer/test-msi.ps1', '-Msi', 'dist/AgyUsageBar-win-x64.msi', '-UpgradeMsi', 'upgrade/AgyUsageBar-win-x64-0.1.1.msi' `
-            -RedirectStandardOutput msi-test.out.log -RedirectStandardError msi-test.err.log -PassThru
+          # The test is started through the shell (no redirection, so the new process inherits none of this step's pipes) and
+          # writes its own log file; this step only watches that file. A hang inside the test then cannot freeze the step:
+          # after the time limit the log is printed, everything the test started is stopped and the step fails.
+          Remove-Item msi-test.log -ErrorAction SilentlyContinue
+          $test = Start-Process pwsh -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-File', 'windows/installer/test-msi.ps1', '-Msi', 'dist/AgyUsageBar-win-x64.msi', '-UpgradeMsi', 'upgrade/AgyUsageBar-win-x64-0.1.1.msi', '-LogFile', 'msi-test.log'
           $null = $test.Handle   # keep the handle so ExitCode is available after exit
-          $finished = $test.WaitForExit(420000)
-          if (-not $finished) { Write-Host '::error::The MSI test did not finish within 7 minutes, stopping it'; & taskkill.exe /F /T /PID $test.Id | Out-Host }
-          Get-Content msi-test.out.log -ErrorAction SilentlyContinue
-          if ((Get-Item msi-test.err.log -ErrorAction SilentlyContinue).Length -gt 0) { Write-Host '--- stderr ---'; Get-Content msi-test.err.log }
-          if (-not $finished) { exit 1 }
+          $deadline = (Get-Date).AddMinutes(6)
+          $shown = 0
+          while (-not $test.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+            $lines = @(Get-Content msi-test.log -ErrorAction SilentlyContinue)
+            if ($lines.Count -gt $shown) { $lines[$shown..($lines.Count - 1)] | ForEach-Object { Write-Host $_ }; $shown = $lines.Count }
+          }
+          $lines = @(Get-Content msi-test.log -ErrorAction SilentlyContinue)
+          if ($lines.Count -gt $shown) { $lines[$shown..($lines.Count - 1)] | ForEach-Object { Write-Host $_ } }
+          if (-not $test.HasExited) {
+            Write-Host '::error::The MSI test did not finish within 6 minutes. Last log line is where it hung. Processes at this moment:'
+            Get-Process msiexec, AgyUsageBar, pwsh, taskkill -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, SessionId, StartTime, Responding -AutoSize | Out-String | Write-Host
+            Get-CimInstance Win32_Process -Filter "Name='msiexec.exe'" | Select-Object ProcessId, ParentProcessId, CommandLine | Format-List | Out-String | Write-Host
+            & taskkill.exe /F /T /PID $test.Id | Out-Host
+            Get-Process AgyUsageBar, msiexec -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
+            exit 1
+          }
           exit $test.ExitCode
       - uses: actions/upload-artifact@v4
         if: always()
