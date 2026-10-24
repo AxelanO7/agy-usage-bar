@@ -1,12 +1,14 @@
 name: Release
 
 # Push a tag like v0.1.0 to build both apps and publish a GitHub release with the downloads.
+# "Run workflow" (workflow_dispatch) does the same builds without publishing anything: a dry run.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   macos:
@@ -47,6 +49,7 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v\d') { $tag = 'v0.0.0' }   # dry run from a branch
           $version = ($tag -replace '^v', '') -replace '[^0-9.].*$', ''
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Tag $tag must look like v1.2.3 (the MSI needs a numeric version)" }
           $arch = "${{ matrix.rid }}".Replace('win-', '')
@@ -61,17 +64,32 @@ jobs:
 
   release:
     needs: [macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write       # build provenance attestation
+      attestations: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          ls -la
+          sha256sum AgyUsageBar-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Attest build provenance
+        continue-on-error: true   # nice to have: lets anyone check the files were built by this workflow
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/AgyUsageBar-*
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -la dist
           cat > notes.md <<'NOTES'
           ## Downloads
 
@@ -83,6 +101,8 @@ jobs:
           | macOS, scripted | `AgyUsageBar-macos.zip` | Used by `scripts/install.sh`. |
 
           Needs the Antigravity CLI (`agy`) installed and signed in. The Windows app is beta.
+
+          The files are built from this repository by GitHub Actions. Check one with `shasum -a 256 <file>` against `SHA256SUMS.txt`, or `gh attestation verify <file> --repo AxelanO7/agy-usage-bar`.
 
           NOTES
           gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" \
