@@ -35,33 +35,64 @@ Alat yang memanggil endpoint kuota Google memakai token yang disimpan `agy` adal
 
 Anda butuh [`agy`](https://antigravity.google/) yang sudah terpasang dan login (`agy --version` harus jalan). Diuji dengan agy 1.4.7.
 
+Unduh pemasang untuk komputer Anda dari **[rilis terbaru](https://github.com/AxelanO7/agy-usage-bar/releases/latest)**:
+
+| Komputer Anda | Berkas | Caranya |
+|---|---|---|
+| Mac (macOS 13+, Apple Silicon atau Intel) | `AgyUsageBar-macos.dmg` | buka, seret aplikasinya ke *Applications* |
+| Windows 10/11 (Intel/AMD) | `AgyUsageBar-win-x64.msi` | klik dua kali |
+| Windows 10/11 ARM | `AgyUsageBar-win-arm64.msi` | klik dua kali |
+| Windows tanpa pemasang | `AgyUsageBar-win-x64.exe` / `-arm64.exe` | satu berkas, langsung jalankan (tanpa .NET) |
+
+Aplikasinya belum ditandatangani dengan sertifikat pengembang berbayar, jadi macOS dan Windows menampilkan peringatan satu kali saat pertama dibuka. Itu wajar; lihat di bawah.
+
 ### macOS 13 atau lebih baru
 
-1. Unduh `AgyUsageBar-macos.zip` dari [Releases](https://github.com/AxelanO7/agy-usage-bar/releases), ekstrak, lalu pindahkan **AgyUsageBar.app** ke `~/Applications` (atau `/Applications`).
-2. Aplikasi belum dinotarisasi. Saat pertama dibuka, klik kanan, pilih **Open**, lalu **Open** lagi. Atau jalankan `xattr -dr com.apple.quarantine ~/Applications/AgyUsageBar.app`.
+1. Buka `AgyUsageBar-macos.dmg`, seret **AgyUsageBar** ke **Applications**, lalu jalankan dari Launchpad.
+2. Pertama dibuka, macOS bilang tidak bisa memeriksa aplikasi dari malware. Buka **System Settings → Privacy & Security**, gulir ke pesan tentang AgyUsageBar, lalu klik **Open Anyway**. (Di macOS 13 dan 14, klik kanan → **Open** juga bisa.) Lewat terminal: `xattr -dr com.apple.quarantine /Applications/AgyUsageBar.app`.
 3. Klik cincin di menu bar. Lewat ikon gerigi Anda bisa memilih apa yang tampil di menu bar dan menyalakan **Buka saat login**.
-
-Atau bangun sendiri (Xcode Command Line Tools, Swift 5.9+):
-
-```sh
-cd macos
-./make_app.sh                       # AgyUsageBar.app universal (Apple Silicon + Intel)
-cp -R AgyUsageBar.app ~/Applications/
-```
 
 ### Windows 10 atau 11
 
-1. Unduh `AgyUsageBar-win-x64.exe` (atau `win-arm64`) dari [Releases](https://github.com/AxelanO7/agy-usage-bar/releases) lalu jalankan. Satu berkas mandiri, tidak perlu memasang .NET.
-2. Exe belum ditandatangani, jadi SmartScreen bisa memperingatkan: **More info → Run anyway**.
+1. Klik dua kali berkas `.msi`. Terpasang hanya untuk akun Anda (tanpa hak administrator) di `%LOCALAPPDATA%\Programs\AgyUsageBar`, menambah menu Start, dan langsung menjalankan aplikasinya.
+2. Windows bisa menampilkan "Windows protected your PC" karena pemasang belum ditandatangani: **More info → Run anyway**.
 3. Windows 11 menyembunyikan ikon tray baru: buka panah **^**, lalu seret ikonnya ke taskbar supaya selalu terlihat. Klik kiri membuka panel, klik kanan membuka menu (isi ikon, bahasa, buka saat login, keluar).
+4. Hapus lewat **Settings → Apps → Agy Usage Bar**. Versi baru terpasang di atas versi lama.
 
-Atau bangun sendiri (.NET 10 SDK):
+Pasang senyap untuk banyak komputer atau skrip: `msiexec /i AgyUsageBar-win-x64.msi /qn` (tambahkan `LAUNCHATLOGIN=1` agar jalan di setiap login).
 
-```powershell
-dotnet publish windows/src/AgyUsageBar -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+> **Status Windows: beta.** Aplikasi Windows sudah diuji unit, tampilannya dirender di runner CI Windows, dan CI memasang, memperbarui, serta menghapus MSI di setiap perubahan, tetapi pemakaian nyatanya lebih sedikit daripada versi macOS. Silakan [buka issue](https://github.com/AxelanO7/agy-usage-bar/issues) bila ada yang janggal.
+
+### Lewat terminal
+
+Skrip mengunduh rilis terbaru lalu memasangnya (baca dulu: [`install.sh`](scripts/install.sh), [`install.ps1`](scripts/install.ps1)). Berkas yang diunduh dengan `curl` tidak diberi karantina, jadi macOS tidak menampilkan peringatan.
+
+```sh
+# macOS
+curl -fsSL https://raw.githubusercontent.com/AxelanO7/agy-usage-bar/main/scripts/install.sh | bash
 ```
 
-> **Status Windows: beta.** Aplikasi Windows sudah diuji unit dan tampilannya dirender di runner CI Windows, tetapi pemakaian nyatanya lebih sedikit daripada versi macOS. Silakan [buka issue](https://github.com/AxelanO7/agy-usage-bar/issues) bila ada yang janggal.
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/AxelanO7/agy-usage-bar/main/scripts/install.ps1 | iex
+```
+
+### Bangun sendiri
+
+macOS (Xcode Command Line Tools, Swift 5.9+):
+
+```sh
+cd macos
+./make_dmg.sh                       # AgyUsageBar.app universal (Apple Silicon + Intel), .dmg dan .zip di ../dist
+cp -R AgyUsageBar.app ~/Applications/
+```
+
+Windows (.NET 10 SDK; MSI-nya butuh komputer Windows):
+
+```powershell
+dotnet publish windows/src/AgyUsageBar -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true --output publish
+./windows/installer/build-msi.ps1 -Exe publish/AgyUsageBar.exe -Arch x64 -Version 0.1.0 -Out AgyUsageBar-win-x64.msi
+```
 
 ## Biar AI coding agent yang memasang
 
@@ -123,7 +154,7 @@ Cara `agy` ditemukan: variabel lingkungan `AGY_PATH`, lalu `PATH` dan folder pem
 | `Login` / "agy belum login" | Jalankan `agy` sekali di terminal lalu masuk. |
 | "Keluaran agy tidak dikenali" | Format `/usage` agy berubah. Antarmuka ini tidak terdokumentasi sebagai stabil, mohon buka issue beserta `agy --version`. |
 | Tidak ada ikon di Windows 11 | Ikonnya ada di panah **^**: seret ke taskbar. |
-| macOS: "tidak dapat dibuka karena pengembang tidak dapat diverifikasi" | Klik kanan → Open, atau perintah `xattr` di atas. |
+| macOS: "tidak dapat dibuka" / "Apple tidak dapat memverifikasi…" | System Settings → Privacy & Security → **Open Anyway**, atau perintah `xattr` di atas. |
 | Item menu bar hilang di MacBook berponi | Menu bar penuh: tutup item lain, atau pilih tampilan lebih pendek di menu gerigi (matikan *Tampilkan hitung mundur*). |
 
 ## Pengembangan

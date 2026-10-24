@@ -29,7 +29,7 @@ agy -p "/usage" --output-format json           # should print JSON containing "s
 
 ```sh
 curl -fsSL -o /tmp/agy-usage-install.sh https://raw.githubusercontent.com/AxelanO7/agy-usage-bar/main/scripts/install.sh
-cat /tmp/agy-usage-install.sh        # read it: it downloads the latest release zip and copies the app to ~/Applications
+cat /tmp/agy-usage-install.sh        # read it: it downloads the latest release zip (same app as the .dmg) and copies it to ~/Applications
 bash /tmp/agy-usage-install.sh
 ```
 
@@ -37,7 +37,7 @@ bash /tmp/agy-usage-install.sh
 
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/AxelanO7/agy-usage-bar/main/scripts/install.ps1 -OutFile $env:TEMP\agy-usage-install.ps1
-Get-Content $env:TEMP\agy-usage-install.ps1      # read it: it downloads the latest release exe to %LOCALAPPDATA%\Programs\AgyUsageBar
+Get-Content $env:TEMP\agy-usage-install.ps1      # read it: it downloads the latest release .msi and installs it per user (no admin) into %LOCALAPPDATA%\Programs\AgyUsageBar
 powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\agy-usage-install.ps1 -LaunchAtLogin
 ```
 
@@ -46,10 +46,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\agy-usage-install.
 ## 3. Verify
 
 - macOS: `pgrep -x AgyUsageBar` prints a process id, and a ring with a percentage appears in the menu bar.
-- Windows: `Get-Process AgyUsageBar` lists the process, and a small tile with a number appears in the system tray (Windows 11 may hide it in the `^` overflow: the user can drag it onto the taskbar).
+- Windows: `Get-Process AgyUsageBar` lists the process, `%LOCALAPPDATA%\Programs\AgyUsageBar\AgyUsageBar.exe` exists, and a small tile with a number appears in the system tray (Windows 11 may hide it in the `^` overflow: the user can drag it onto the taskbar).
 - Data check: `~/Library/Application Support/AgyUsageBar/last-usage.json` (macOS) or `%LOCALAPPDATA%\AgyUsageBar\last-usage.json` (Windows) exists after a few seconds.
 
 Then tell the user what you installed, where, and that clicking the icon opens the panel. Launch at login: macOS gear icon in the panel -> *Launch at login*; Windows tray right-click -> *Launch at login*.
+
+## Other ways to install
+
+The release page https://github.com/AxelanO7/agy-usage-bar/releases/latest also has `AgyUsageBar-macos.dmg` (drag to Applications; macOS then asks for *Open Anyway* in System Settings -> Privacy & Security because the app is not notarized), `AgyUsageBar-win-x64.msi` / `AgyUsageBar-win-arm64.msi` (per-user installer; silent: `msiexec /i <file> /qn`, optional `LAUNCHATLOGIN=1`) and the portable `AgyUsageBar-win-*.exe`. The scripts above are the easiest path for an agent because they pick the right file and need no confirmation dialogs.
 
 ## If there is no release yet (build from source)
 
@@ -70,9 +74,9 @@ Start-Process .\publish\AgyUsageBar.exe
 
 ## Update
 
-Run the install step again: it replaces the old copy.
+Run the install step again: it replaces the old copy (the MSI upgrades in place and restarts the app).
 
 ## Uninstall
 
 - macOS: quit the app from the gear menu, delete `~/Applications/AgyUsageBar.app` and `~/Library/Application Support/AgyUsageBar`.
-- Windows: tray right-click -> *Quit*, delete `%LOCALAPPDATA%\Programs\AgyUsageBar` and `%LOCALAPPDATA%\AgyUsageBar`, remove the Start Menu shortcut, and turn off *Launch at login* first if it was on.
+- Windows: Settings -> Apps -> *Agy Usage Bar* -> Uninstall (it stops the app, removes the files, the Start Menu entry and the *Launch at login* entry). Optionally delete `%LOCALAPPDATA%\AgyUsageBar` (history and settings).

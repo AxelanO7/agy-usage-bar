@@ -42,33 +42,64 @@ Tools that call Google's quota endpoint with the token that `agy` stores are a d
 
 You need [`agy`](https://antigravity.google/) installed and signed in (`agy --version` should work). Tested with agy 1.4.7.
 
+Download the installer for your computer from the **[latest release](https://github.com/AxelanO7/agy-usage-bar/releases/latest)**:
+
+| Your computer | File | What to do |
+|---|---|---|
+| Mac (macOS 13+, Apple Silicon or Intel) | `AgyUsageBar-macos.dmg` | open it, drag the app onto *Applications* |
+| Windows 10/11 (Intel/AMD) | `AgyUsageBar-win-x64.msi` | double-click |
+| Windows 10/11 on ARM | `AgyUsageBar-win-arm64.msi` | double-click |
+| Windows, no installer | `AgyUsageBar-win-x64.exe` / `-arm64.exe` | single file, just run it (no .NET needed) |
+
+The apps are not signed with a paid developer certificate, so macOS and Windows show a one-time warning on first launch. It is expected; see below.
+
 ### macOS 13 or newer
 
-1. Download `AgyUsageBar-macos.zip` from [Releases](https://github.com/AxelanO7/agy-usage-bar/releases), unzip it and move **AgyUsageBar.app** to `~/Applications` (or `/Applications`).
-2. The app is not notarized. On first launch right-click it, choose **Open**, then **Open** again. Or run `xattr -dr com.apple.quarantine ~/Applications/AgyUsageBar.app`.
+1. Open `AgyUsageBar-macos.dmg` and drag **AgyUsageBar** onto **Applications**, then start it from Launchpad.
+2. First launch: macOS says it cannot check the app for malware. Open **System Settings → Privacy & Security**, scroll down to the message about AgyUsageBar and click **Open Anyway**. (On macOS 13 and 14 right-click → **Open** also works.) From a terminal: `xattr -dr com.apple.quarantine /Applications/AgyUsageBar.app`.
 3. Click the ring in the menu bar. Use the gear to pick what the menu bar shows and to turn on **Launch at login**.
-
-Or build it yourself (Xcode Command Line Tools, Swift 5.9+):
-
-```sh
-cd macos
-./make_app.sh                       # universal (Apple Silicon + Intel) AgyUsageBar.app
-cp -R AgyUsageBar.app ~/Applications/
-```
 
 ### Windows 10 or 11
 
-1. Download `AgyUsageBar-win-x64.exe` (or `win-arm64`) from [Releases](https://github.com/AxelanO7/agy-usage-bar/releases) and run it. It is a single self-contained file, no .NET install needed.
-2. The exe is not code-signed, so SmartScreen may warn: **More info → Run anyway**.
+1. Double-click the `.msi`. It installs for your user only (no administrator rights) into `%LOCALAPPDATA%\Programs\AgyUsageBar`, adds a Start Menu entry, and starts the app.
+2. Windows may show "Windows protected your PC" because the installer is not code-signed: **More info → Run anyway**.
 3. Windows 11 hides new tray icons: open the **^** overflow and drag the icon onto the taskbar to keep it visible. Left-click opens the panel, right-click opens the menu (what the icon shows, language, launch at login, quit).
+4. Remove it from **Settings → Apps → Agy Usage Bar**. Newer versions install over older ones.
 
-Or build it yourself (.NET 10 SDK):
+Silent install for a fleet or a script: `msiexec /i AgyUsageBar-win-x64.msi /qn` (add `LAUNCHATLOGIN=1` to start it at every login).
 
-```powershell
-dotnet publish windows/src/AgyUsageBar -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+> **Windows status: beta.** The Windows app is covered by unit tests, its screens are rendered on a Windows CI runner, and CI installs, upgrades and uninstalls the MSI on every change, but it has had less real-world use than the macOS app. Please [open an issue](https://github.com/AxelanO7/agy-usage-bar/issues) if something looks off.
+
+### From a terminal
+
+The scripts download the latest release and install it for you (read them first: [`install.sh`](scripts/install.sh), [`install.ps1`](scripts/install.ps1)). Files fetched with `curl` are not quarantined, so macOS shows no warning.
+
+```sh
+# macOS
+curl -fsSL https://raw.githubusercontent.com/AxelanO7/agy-usage-bar/main/scripts/install.sh | bash
 ```
 
-> **Windows status: beta.** The Windows app is covered by unit tests and its screens are rendered on a Windows CI runner, but it has had less real-world use than the macOS app. Please [open an issue](https://github.com/AxelanO7/agy-usage-bar/issues) if something looks off.
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/AxelanO7/agy-usage-bar/main/scripts/install.ps1 | iex
+```
+
+### Build it yourself
+
+macOS (Xcode Command Line Tools, Swift 5.9+):
+
+```sh
+cd macos
+./make_dmg.sh                       # universal (Apple Silicon + Intel) AgyUsageBar.app, .dmg and .zip in ../dist
+cp -R AgyUsageBar.app ~/Applications/
+```
+
+Windows (.NET 10 SDK; the MSI additionally needs a Windows machine):
+
+```powershell
+dotnet publish windows/src/AgyUsageBar -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true --output publish
+./windows/installer/build-msi.ps1 -Exe publish/AgyUsageBar.exe -Arch x64 -Version 0.1.0 -Out AgyUsageBar-win-x64.msi
+```
 
 ## Let your AI coding agent install it
 
@@ -130,7 +161,7 @@ How `agy` is found: the `AGY_PATH` environment variable, then your `PATH` and th
 | `Sign in` / "agy is not signed in" | Run `agy` once in a terminal and sign in. |
 | "Unrecognized agy output" | agy's `/usage` output changed. It is not a documented stable interface, please open an issue with your `agy --version`. |
 | No icon on Windows 11 | It is in the **^** overflow: drag it onto the taskbar. |
-| macOS: "cannot be opened because the developer cannot be verified" | Right-click → Open, or the `xattr` command above. |
+| macOS: "cannot be opened" / "Apple could not verify…" | System Settings → Privacy & Security → **Open Anyway**, or the `xattr` command above. |
 | The menu bar item is missing on a MacBook with a notch | The menu bar is full: quit another item, or pick the shorter display in the gear menu (turn off *Show countdown*). |
 
 ## Development
@@ -139,6 +170,7 @@ How `agy` is found: the `AGY_PATH` environment variable, then your `PATH` and th
 macos/     SwiftUI + AppKit app (Swift Package, no dependencies)
 windows/   .NET 10 solution: Core library (shared logic), WPF + WinForms tray app, xUnit tests
 tools/     icon generator
+scripts/   install.sh / install.ps1 (used by the "From a terminal" and AI-agent install paths)
 ```
 
 ```sh
