@@ -21,6 +21,6 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
 }
 # The wix tool targets an older .NET than the one setup-dotnet installs; let it run on the newer runtime.
 $env:DOTNET_ROLL_FORWARD = 'Major'
-wix build -arch $Arch -d Version=$Version -d ExePath=$((Resolve-Path $Exe).Path) -d IconPath=$((Resolve-Path $icon).Path) -o $Out (Join-Path $here 'Package.wxs')
+wix build -arch $Arch -pdbtype none -d Version=$Version -d ExePath=$((Resolve-Path $Exe).Path) -d IconPath=$((Resolve-Path $icon).Path) -o $Out (Join-Path $here 'Package.wxs')
 if ($LASTEXITCODE -ne 0) { throw "wix build failed ($LASTEXITCODE)" }
 Write-Host "Built $Out ($([math]::Round((Get-Item $Out).Length / 1MB, 1)) MB)"

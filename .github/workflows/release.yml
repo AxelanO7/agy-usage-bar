@@ -78,6 +78,7 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: |
+          rm -f *.wixpdb
           ls -la
           sha256sum AgyUsageBar-* > SHA256SUMS.txt
           cat SHA256SUMS.txt
