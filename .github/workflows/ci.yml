@@ -109,6 +109,7 @@ jobs:
           ./windows/installer/build-msi.ps1 -Exe publish/win-x64/AgyUsageBar.exe -Arch x64 -Version 0.1.1 -Out upgrade/AgyUsageBar-win-x64-0.1.1.msi
           Get-ChildItem dist, upgrade
       - name: Install, upgrade and uninstall the MSI silently
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -121,8 +122,10 @@ jobs:
           $failures = New-Object System.Collections.Generic.List[string]
 
           # Every check is recorded and the script carries on, so one run shows all problems at once.
+          $clock = [System.Diagnostics.Stopwatch]::StartNew()
           function Check([bool]$Ok, [string]$What) {
-            if ($Ok) { Write-Host "  ok      $What" } else { Write-Host "::error::FAILED: $What"; $failures.Add($What) }
+            $t = '[{0,6:n1}s]' -f $clock.Elapsed.TotalSeconds
+            if ($Ok) { Write-Host "$t ok      $What" } else { Write-Host "::error::$t FAILED: $What"; $failures.Add($What) }
           }
           # msiexec is started and awaited by hand: "Start-Process -Wait" also waits for the tray app that the installer launches, and would never return.
           function Invoke-Msi([string]$Verb, [string]$Msi, [string]$Log, [string]$Extra = '') {
@@ -139,11 +142,24 @@ jobs:
           }
           function Get-AppCount { @(Get-Process AgyUsageBar -ErrorAction SilentlyContinue).Count }
           # Where Settings > Apps reads from: look in every Uninstall hive instead of assuming one.
+          # The .NET registry API is used on purpose: walking these keys with Get-ItemProperty takes minutes on a runner with hundreds of installed products.
           function Get-Arp {
-            foreach ($root in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall') {
-              Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
-                $item = Get-ItemProperty $_.PSPath
-                if ($item.DisplayName -eq 'Agy Usage Bar') { [pscustomobject]@{ Root = $root; Key = $_.PSChildName; Version = $item.DisplayVersion } }
+            $roots = @(
+              @{ Hive = [Microsoft.Win32.RegistryHive]::CurrentUser;  View = [Microsoft.Win32.RegistryView]::Registry64; Path = 'Software\Microsoft\Windows\CurrentVersion\Uninstall' },
+              @{ Hive = [Microsoft.Win32.RegistryHive]::LocalMachine; View = [Microsoft.Win32.RegistryView]::Registry64; Path = 'Software\Microsoft\Windows\CurrentVersion\Uninstall' },
+              @{ Hive = [Microsoft.Win32.RegistryHive]::LocalMachine; View = [Microsoft.Win32.RegistryView]::Registry32; Path = 'Software\Microsoft\Windows\CurrentVersion\Uninstall' }
+            )
+            foreach ($r in $roots) {
+              $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($r.Hive, $r.View)
+              $uninstall = $base.OpenSubKey($r.Path)
+              if ($null -eq $uninstall) { continue }
+              foreach ($name in $uninstall.GetSubKeyNames()) {
+                $sub = $uninstall.OpenSubKey($name)
+                if ($null -eq $sub) { continue }
+                if ($sub.GetValue('DisplayName') -eq 'Agy Usage Bar') {
+                  [pscustomobject]@{ Hive = "$($r.Hive)"; View = "$($r.View)"; Key = $name; Version = $sub.GetValue('DisplayVersion') }
+                }
+                $sub.Dispose()
               }
             }
           }
@@ -151,7 +167,7 @@ jobs:
           $wi = New-Object -ComObject WindowsInstaller.Installer
           function Get-InstalledVersions { foreach ($pc in $wi.RelatedProducts($upgradeCode)) { $wi.ProductInfo($pc, 'VersionString') } }
 
-          Write-Host '== 1. Fresh install'
+          Write-Host ("[{0,6:n1}s] == 1. Fresh install" -f $clock.Elapsed.TotalSeconds)
           Invoke-Msi i $v1 install.log
           Check (Test-Path "$dir\AgyUsageBar.exe") 'AgyUsageBar.exe is installed'
           Check (Test-Path $lnk) 'Start Menu shortcut exists'
@@ -162,7 +178,7 @@ jobs:
           Check ($arp.Count -eq 1 -and $arp[0].Version -eq '0.1.0') 'Add/Remove Programs entry exists with version 0.1.0'
           Check (-not (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue)) 'launch at login is off by default'
 
-          Write-Host '== 2. Upgrade while the app is running'
+          Write-Host ("[{0,6:n1}s] == 2. Upgrade while the app is running" -f $clock.Elapsed.TotalSeconds)
           Invoke-Msi i $v2 upgrade.log
           Check (Wait-Until { (Get-AppCount) -eq 1 }) "one copy runs after the upgrade (running copies: $(Get-AppCount))"
           Check ((@(Get-InstalledVersions) -join ',') -eq '0.1.1') "Windows Installer lists exactly version 0.1.1 (got: $(@(Get-InstalledVersions) -join ','))"
@@ -170,7 +186,7 @@ jobs:
           Check ($arp.Count -eq 1 -and $arp[0].Version -eq '0.1.1') 'one Add/Remove Programs entry, version 0.1.1'
           Check (Test-Path "$dir\AgyUsageBar.exe") 'the exe is still installed after the upgrade'
 
-          Write-Host '== 3. Uninstall'
+          Write-Host ("[{0,6:n1}s] == 3. Uninstall" -f $clock.Elapsed.TotalSeconds)
           Invoke-Msi x $v2 uninstall.log
           Check (Wait-Until { (Get-AppCount) -eq 0 }) 'the app was stopped'
           Check (-not (Test-Path $dir)) 'install folder removed'
@@ -178,7 +194,7 @@ jobs:
           Check (@(Get-InstalledVersions).Count -eq 0) 'Windows Installer no longer lists the product'
           Check (@(Get-Arp).Count -eq 0) 'Add/Remove Programs entry removed'
 
-          Write-Host '== 4. Optional launch at login (LAUNCHATLOGIN=1)'
+          Write-Host ("[{0,6:n1}s] == 4. Optional launch at login (LAUNCHATLOGIN=1)" -f $clock.Elapsed.TotalSeconds)
           Invoke-Msi i $v1 install-login.log 'LAUNCHATLOGIN=1'
           $val = (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue).AgyUsageBar
           Check ($val -like '*AgyUsageBar.exe*') "Run key written: '$val'"
