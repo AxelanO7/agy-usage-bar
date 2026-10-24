@@ -17,6 +17,14 @@
   <img src="docs/screenshots/macos-light.png" width="300" alt="Popover macOS, terang">
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/windows-id.png" width="230" alt="Panel Windows, bahasa Indonesia">
+  &nbsp;
+  <img src="docs/screenshots/windows-tray-icons.png" width="330" alt="Keadaan ikon tray Windows">
+</p>
+
+<p align="center"><sub>Aplikasi menu bar macOS (atas) dan aplikasi tray Windows (bawah). Ikon tray Windows menampilkan persen terpakai; warna dan barnya mengikuti pita hijau / oranye / merah yang sama.</sub></p>
+
 ## Isinya
 
 - **Pengukur langsung di tempat yang selalu terlihat.** macOS: cincin berwarna dan teks `72% · 2j 10m` di menu bar. Windows: ikon tray berisi persen terpakai dengan bar pengisi.

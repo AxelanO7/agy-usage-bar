@@ -24,6 +24,16 @@
   <img src="docs/screenshots/macos-light.png" width="300" alt="macOS popover, light">
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/windows-dark.png" width="230" alt="Windows panel, dark">
+  &nbsp;
+  <img src="docs/screenshots/windows-light.png" width="230" alt="Windows panel, light">
+  &nbsp;
+  <img src="docs/screenshots/windows-tray-icons.png" width="330" alt="Windows tray icon states">
+</p>
+
+<p align="center"><sub>macOS menu bar app (top) and Windows tray app (bottom). The Windows tray icon shows the used percentage; its color and bar follow the same green / amber / red bands.</sub></p>
+
 ## What you get
 
 - **A live gauge where you can always see it.** macOS: a colored ring plus `72% · 2h 10m` in the menu bar. Windows: a tray icon with the used percentage and a fill bar.
