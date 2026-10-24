@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AgyUsageBar</RootNamespace>
+    <AssemblyName>AgyUsageBar</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- WPF needs the DPI setting in the manifest; the WinForms-only advice does not apply here -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>0.1.0</Version>
+    <Product>Agy Usage Bar</Product>
+    <Description>Tray usage meter for the Antigravity CLI (agy)</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgyUsageBar.Core\AgyUsageBar.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,67 @@
+name: Release
+
+# Push a tag like v0.1.0 to build both apps and publish a GitHub release with the downloads.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, self-test, package
+        working-directory: macos
+        run: |
+          swift build
+          .build/debug/AgyUsageBar --selftest
+          ./make_app.sh
+          ditto -c -k --keepParent AgyUsageBar.app ../AgyUsageBar-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: AgyUsageBar-macos.zip
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        rid: [win-x64, win-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test windows/tests/AgyUsageBar.Tests --configuration Release
+      - name: Publish single-file exe
+        run: >
+          dotnet publish windows/src/AgyUsageBar --configuration Release --runtime ${{ matrix.rid }}
+          --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true --output publish/${{ matrix.rid }}
+      - name: Rename
+        shell: pwsh
+        run: Copy-Item publish/${{ matrix.rid }}/AgyUsageBar.exe AgyUsageBar-${{ matrix.rid }}.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.rid }}
+          path: AgyUsageBar-${{ matrix.rid }}.exe
+
+  release:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" --generate-notes

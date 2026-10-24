@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build and self-test
+        working-directory: macos
+        run: |
+          swift build
+          .build/debug/AgyUsageBar --selftest
+      - name: Package the app (universal, ad-hoc signed)
+        working-directory: macos
+        run: ./make_app.sh
+      - name: Render screenshots from demo data
+        working-directory: macos
+        continue-on-error: true   # needs a window server; nice to have, not a gate
+        run: |
+          mkdir -p ../out
+          .build/debug/AgyUsageBar --snapshot ../out/macos-dark.png --demo --dark --lang en
+          .build/debug/AgyUsageBar --snapshot ../out/macos-light.png --demo --lang en
+          .build/debug/AgyUsageBar --snapshot ../out/macos-id.png --demo --dark --lang id --pool 3p
+          .build/debug/AgyUsageBar --menubar-preview ../out/macos-menubar.png --lang en
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-screenshots
+          path: out/
+          if-no-files-found: ignore
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test windows/tests/AgyUsageBar.Tests --configuration Release
+      - name: Build the tray app
+        run: dotnet build windows/src/AgyUsageBar --configuration Release
+      - name: Render screenshots from demo data
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $exe = Resolve-Path windows/src/AgyUsageBar/bin/Release/net10.0-windows/AgyUsageBar.exe
+          function Run($argList) {
+            $p = Start-Process -FilePath $exe -ArgumentList $argList -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "AgyUsageBar $argList exited with $($p.ExitCode)" }
+          }
+          Run @('--snapshot', 'out/windows-dark.png', '--dark', '--lang', 'en')
+          Run @('--snapshot', 'out/windows-light.png', '--lang', 'en')
+          Run @('--snapshot', 'out/windows-id.png', '--dark', '--lang', 'id', '--pool', '3p')
+          Run @('--icons', 'out/windows-tray-icons.png')
+          Get-ChildItem out
+      - name: Smoke test the tray app with a fake agy
+        shell: pwsh
+        run: |
+          # A stand-in agy.cmd that prints the fixture, so the real code path (find agy, run it, parse, persist) runs end to end.
+          $fake = Join-Path $PWD 'fake-agy'
+          New-Item -ItemType Directory -Force -Path $fake | Out-Null
+          Copy-Item windows/tests/fixtures/usage.json (Join-Path $fake 'usage.json')
+          Set-Content -Path (Join-Path $fake 'agy.cmd') -Value '@type "%~dp0usage.json"' -Encoding ASCII
+          $env:PATH = "$fake;$env:PATH"
+          $exe = Resolve-Path windows/src/AgyUsageBar/bin/Release/net10.0-windows/AgyUsageBar.exe
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "The app exited early with code $($p.ExitCode)" }
+          $file = Join-Path $env:LOCALAPPDATA 'AgyUsageBar\last-usage.json'
+          if (-not (Test-Path $file)) { throw "No last-usage.json: the app did not fetch from agy" }
+          $json = Get-Content $file -Raw
+          if ($json -notmatch 'gemini-5h') { throw "last-usage.json has no gemini-5h bucket: $json" }
+          Write-Host "OK: the app ran, called agy and stored $((Get-Item $file).Length) bytes"
+          Stop-Process -Id $p.Id -Force
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-screenshots
+          path: out/
+          if-no-files-found: ignore

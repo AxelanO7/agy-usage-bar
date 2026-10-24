@@ -1,0 +1,35 @@
+name: Verify install scripts
+
+# Run by hand after publishing a release: installs the latest release with the scripts from the repo and checks the app starts.
+on:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install from the latest release
+        run: bash scripts/install.sh
+      - name: Check it is running
+        run: |
+          sleep 8
+          pgrep -x AgyUsageBar
+          test -d "$HOME/Applications/AgyUsageBar.app"
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install from the latest release
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -LaunchAtLogin
+      - name: Check it is running
+        shell: pwsh
+        run: |
+          Start-Sleep -Seconds 8
+          $p = Get-Process AgyUsageBar -ErrorAction Stop
+          Write-Host "running: $($p.Id)"
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').AgyUsageBar
+          if (-not $run) { throw 'Run key missing' }
+          Write-Host "autostart: $run"
