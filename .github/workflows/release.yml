@@ -11,22 +11,23 @@ permissions:
 jobs:
   macos:
     runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Build, self-test, package
+      - name: Build, self-test, package (DMG + zip)
         working-directory: macos
         run: |
           swift build
           .build/debug/AgyUsageBar --selftest
-          ./make_app.sh
-          ditto -c -k --keepParent AgyUsageBar.app ../AgyUsageBar-macos.zip
+          ./make_dmg.sh ../dist
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: AgyUsageBar-macos.zip
+          path: dist/
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         rid: [win-x64, win-arm64]
@@ -42,13 +43,21 @@ jobs:
           dotnet publish windows/src/AgyUsageBar --configuration Release --runtime ${{ matrix.rid }}
           --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true --output publish/${{ matrix.rid }}
-      - name: Rename
+      - name: Build the MSI
         shell: pwsh
-        run: Copy-Item publish/${{ matrix.rid }}/AgyUsageBar.exe AgyUsageBar-${{ matrix.rid }}.exe
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = ($tag -replace '^v', '') -replace '[^0-9.].*$', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Tag $tag must look like v1.2.3 (the MSI needs a numeric version)" }
+          $arch = "${{ matrix.rid }}".Replace('win-', '')
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item publish/${{ matrix.rid }}/AgyUsageBar.exe dist/AgyUsageBar-${{ matrix.rid }}.exe
+          ./windows/installer/build-msi.ps1 -Exe publish/${{ matrix.rid }}/AgyUsageBar.exe -Arch $arch -Version $version -Out dist/AgyUsageBar-${{ matrix.rid }}.msi
+          Get-ChildItem dist
       - uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.rid }}
-          path: AgyUsageBar-${{ matrix.rid }}.exe
+          path: dist/
 
   release:
     needs: [macos, windows]
@@ -63,5 +72,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la dist
+          cat > notes.md <<'NOTES'
+          ## Downloads
+
+          | | File | Notes |
+          |---|---|---|
+          | macOS 13+ | `AgyUsageBar-macos.dmg` | Open it and drag **AgyUsageBar** to *Applications*. The app is not notarized, so on first launch macOS asks for confirmation: *System Settings -> Privacy & Security -> Open Anyway*. |
+          | Windows 10/11 | `AgyUsageBar-win-x64.msi` (Intel/AMD) or `AgyUsageBar-win-arm64.msi` | Double-click. Per-user install, no administrator rights. SmartScreen may ask: *More info -> Run anyway*. |
+          | Windows, portable | `AgyUsageBar-win-x64.exe` / `-arm64.exe` | Single file, just run it. |
+          | macOS, scripted | `AgyUsageBar-macos.zip` | Used by `scripts/install.sh`. |
+
+          Needs the Antigravity CLI (`agy`) installed and signed in. The Windows app is beta.
+
+          NOTES
           gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" \
-            --title "${{ github.ref_name }}" --generate-notes
+            --title "${{ github.ref_name }}" --notes-file notes.md --generate-notes

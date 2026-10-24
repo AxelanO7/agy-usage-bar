@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Per-user installer (no administrator rights): installs to %LOCALAPPDATA%\Programs\AgyUsageBar, adds a Start Menu shortcut,
+  starts the app when the install finishes and replaces older versions in place.
+  Build:  wix build -arch x64 -d Version=0.1.0 -d ExePath=AgyUsageBar.exe -d IconPath=app.ico -o AgyUsageBar-win-x64.msi Package.wxs
+  Silent: msiexec /i AgyUsageBar-win-x64.msi /qn            (add LAUNCHATLOGIN=1 to start it at every login)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Agy Usage Bar"
+           Manufacturer="AxelanO7"
+           Version="$(Version)"
+           UpgradeCode="84229c8e-27e1-4d99-8155-e8e40acf34be"
+           Scope="perUser"
+           Language="1033"
+           Compressed="yes">
+
+    <SummaryInformation Description="Tray usage meter for the Antigravity CLI (agy)" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Agy Usage Bar is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/AxelanO7/agy-usage-bar" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/AxelanO7/agy-usage-bar" />
+
+    <!-- Off by default; the same switch exists in the tray menu. -->
+    <Property Id="LAUNCHATLOGIN" Value="0" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="AgyUsageBar" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="Agy Usage Bar" Level="1">
+      <ComponentGroupRef Id="AppComponents" />
+    </Feature>
+
+    <!-- A tray app has no window to close, so stop it before files are replaced or removed. -->
+    <CustomAction Id="StopRunningApp" Directory="LocalAppDataFolder"
+                  ExeCommand="&quot;[SystemFolder]taskkill.exe&quot; /F /IM AgyUsageBar.exe"
+                  Execute="immediate" Return="ignore" />
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]AgyUsageBar.exe&quot;"
+                  Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopRunningApp" Before="InstallValidate" />
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppComponents" Directory="INSTALLFOLDER">
+      <Component Id="AppExe" Guid="4f3e9df6-dd86-4328-ad2d-50fb2fa05cc4">
+        <!-- Per-user components must have an HKCU registry key as key path (ICE38) and a fixed GUID (a file plus a registry key path rules out "*"). -->
+        <RegistryValue Root="HKCU" Key="Software\AgyUsageBar" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <File Id="AgyUsageBarExe" Name="AgyUsageBar.exe" Source="$(ExePath)" />
+        <!-- ICE64: every folder this package creates in the user profile must be removed again (only if empty). -->
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsDir" On="uninstall" />
+      </Component>
+
+      <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="d9f856fa-8b70-4a75-8f73-0b703b28a628">
+        <Shortcut Id="StartMenuShortcutLink" Name="Agy Usage Bar" Description="Antigravity (agy) usage in the system tray"
+                  Target="[INSTALLFOLDER]AgyUsageBar.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\AgyUsageBar" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="LaunchAtLogin" Guid="8beb0275-f501-4714-9711-6f572ec0c38d" Condition="LAUNCHATLOGIN = 1">
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="AgyUsageBar" Type="string"
+                       Value="&quot;[INSTALLFOLDER]AgyUsageBar.exe&quot;" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

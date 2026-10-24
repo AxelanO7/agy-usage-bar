@@ -8,6 +8,7 @@ on:
 jobs:
   macos:
     runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Swift version
@@ -17,9 +18,22 @@ jobs:
         run: |
           swift build
           .build/debug/AgyUsageBar --selftest
-      - name: Package the app (universal, ad-hoc signed)
+      - name: Package the app, DMG and zip (universal, ad-hoc signed)
         working-directory: macos
-        run: ./make_app.sh
+        run: ./make_dmg.sh ../dist
+      - name: Check the DMG contents
+        run: |
+          hdiutil attach dist/AgyUsageBar-macos.dmg -nobrowse -mountpoint /tmp/agy-dmg
+          ls -la /tmp/agy-dmg
+          test -d /tmp/agy-dmg/AgyUsageBar.app
+          test -L /tmp/agy-dmg/Applications
+          codesign -v /tmp/agy-dmg/AgyUsageBar.app
+          lipo -archs /tmp/agy-dmg/AgyUsageBar.app/Contents/MacOS/AgyUsageBar
+          hdiutil detach /tmp/agy-dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: dist/
       - name: Render screenshots from demo data
         working-directory: macos
         continue-on-error: true   # needs a window server; nice to have, not a gate
@@ -38,6 +52,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -80,6 +95,90 @@ jobs:
           if ($json -notmatch 'gemini-5h') { throw "last-usage.json has no gemini-5h bucket: $json" }
           Write-Host "OK: the app ran, called agy and stored $((Get-Item $file).Length) bytes"
           Stop-Process -Id $p.Id -Force
+      - name: Publish the single-file exe (x64)
+        run: >
+          dotnet publish windows/src/AgyUsageBar --configuration Release --runtime win-x64
+          --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true --output publish/win-x64
+      - name: Build the MSI (and a newer one to test upgrades)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist, upgrade | Out-Null
+          Copy-Item publish/win-x64/AgyUsageBar.exe dist/AgyUsageBar-win-x64.exe
+          ./windows/installer/build-msi.ps1 -Exe publish/win-x64/AgyUsageBar.exe -Arch x64 -Version 0.1.0 -Out dist/AgyUsageBar-win-x64.msi
+          ./windows/installer/build-msi.ps1 -Exe publish/win-x64/AgyUsageBar.exe -Arch x64 -Version 0.1.1 -Out upgrade/AgyUsageBar-win-x64-0.1.1.msi
+          Get-ChildItem dist, upgrade
+      - name: Install, upgrade and uninstall the MSI silently
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v1 = (Resolve-Path dist/AgyUsageBar-win-x64.msi).Path
+          $v2 = (Resolve-Path upgrade/AgyUsageBar-win-x64-0.1.1.msi).Path
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\AgyUsageBar'
+          $lnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Agy Usage Bar.lnk'
+          $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          $arpRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+
+          # msiexec is started and awaited by hand: "Start-Process -Wait" also waits for the tray app that the installer launches, and would never return.
+          function Invoke-Msi([string]$Verb, [string]$Msi, [string]$Log, [string]$Extra = '') {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo 'msiexec.exe'
+            $psi.UseShellExecute = $false
+            $psi.Arguments = ('/{0} "{1}" /qn /norestart /l*v "{2}" {3}' -f $Verb, $Msi, $Log, $Extra)
+            $p = [System.Diagnostics.Process]::Start($psi)
+            if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "msiexec /$Verb timed out" }
+            if ($p.ExitCode -ne 0) { if (Test-Path $Log) { Get-Content $Log -Tail 150 }; throw "msiexec /$Verb exited with $($p.ExitCode)" }
+          }
+          function Wait-Until([scriptblock]$Condition, [int]$Seconds = 20) {
+            for ($i = 0; $i -lt $Seconds; $i++) { if (& $Condition) { return $true }; Start-Sleep -Seconds 1 }
+            return [bool](& $Condition)
+          }
+          function Get-Arp { Get-ChildItem $arpRoot -ErrorAction SilentlyContinue | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -eq 'Agy Usage Bar' } }
+          function Get-AppCount { @(Get-Process AgyUsageBar -ErrorAction SilentlyContinue).Count }
+
+          # 1. Fresh install: files, shortcut, app started, registered, launch at login off.
+          Invoke-Msi i $v1 install.log
+          if (-not (Test-Path "$dir\AgyUsageBar.exe")) { throw 'AgyUsageBar.exe was not installed' }
+          if (-not (Test-Path $lnk)) { throw 'Start Menu shortcut is missing' }
+          if (-not (Wait-Until { (Get-AppCount) -eq 1 })) { throw "Expected the installer to start the app once, running copies: $(Get-AppCount)" }
+          $arp = @(Get-Arp)
+          if ($arp.Count -ne 1 -or $arp[0].DisplayVersion -ne '0.1.0') { throw "Add/Remove Programs entry missing or wrong: $($arp | Out-String)" }
+          if (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue) { throw 'Launch at login must be off by default' }
+          Write-Host 'Fresh install OK'
+
+          # 2. Upgrade while the app is running: one copy afterwards, new version registered, no leftovers of the old entry.
+          Invoke-Msi i $v2 upgrade.log
+          if (-not (Wait-Until { (Get-AppCount) -eq 1 })) { throw "After the upgrade expected 1 running copy, found $(Get-AppCount)" }
+          $arp = @(Get-Arp)
+          if ($arp.Count -ne 1 -or $arp[0].DisplayVersion -ne '0.1.1') { throw "Upgrade did not replace the old entry: $($arp | Out-String)" }
+          if (-not (Test-Path "$dir\AgyUsageBar.exe")) { throw 'The exe vanished during the upgrade' }
+          Write-Host 'Upgrade OK'
+
+          # 3. Uninstall removes everything and stops the app.
+          Invoke-Msi x $v2 uninstall.log
+          if (-not (Wait-Until { (Get-AppCount) -eq 0 })) { throw 'The app is still running after uninstall' }
+          if (Test-Path $dir) { throw 'The install folder is still there after uninstall' }
+          if (Test-Path $lnk) { throw 'The shortcut is still there after uninstall' }
+          if (@(Get-Arp).Count -ne 0) { throw 'The Add/Remove Programs entry is still there after uninstall' }
+          Write-Host 'Uninstall OK'
+
+          # 4. The optional switch: LAUNCHATLOGIN=1 writes the Run key, uninstall removes it.
+          Invoke-Msi i $v1 install-login.log 'LAUNCHATLOGIN=1'
+          $val = (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue).AgyUsageBar
+          if ($val -notlike '*AgyUsageBar.exe*') { throw "LAUNCHATLOGIN=1 did not write the Run key: '$val'" }
+          Invoke-Msi x $v1 uninstall-login.log
+          if (Get-ItemProperty $run -Name AgyUsageBar -ErrorAction SilentlyContinue) { throw 'The Run key is still there after uninstall' }
+          if (-not (Wait-Until { (Get-AppCount) -eq 0 })) { throw 'The app is still running after the last uninstall' }
+          Write-Host 'Launch-at-login switch OK'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-msi-logs
+          path: "*.log"
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: dist/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
